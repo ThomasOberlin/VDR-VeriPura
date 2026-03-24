@@ -105,6 +105,92 @@ interface ActivityLog {
 
 // --- Components ---
 
+const NotificationContext = React.createContext<{
+  notify: (message: string, type?: 'success' | 'error' | 'info') => void;
+  confirm: (title: string, message: string, onConfirm: () => void) => void;
+}>({
+  notify: () => {},
+  confirm: () => {},
+});
+
+const useNotification = () => React.useContext(NotificationContext);
+
+const Notification = ({ message, type, onClose }: { message: string, type: 'success' | 'error' | 'info', onClose: () => void }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 5000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const colors = {
+    success: 'bg-[#141414] text-[#E4E3E0] border-[#E4E3E0]/20',
+    error: 'bg-red-900 text-white border-red-500/20',
+    info: 'bg-[#E4E3E0] text-[#141414] border-[#141414]/20'
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 50, x: '-50%' }}
+      animate={{ opacity: 1, y: 0, x: '-50%' }}
+      exit={{ opacity: 0, y: 20, x: '-50%' }}
+      className={`fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-sm border shadow-2xl z-[9999] flex items-center gap-3 min-w-[300px] ${colors[type]}`}
+    >
+      {type === 'success' && <CheckCircle2 className="w-4 h-4" />}
+      {type === 'error' && <AlertCircle className="w-4 h-4" />}
+      {type === 'info' && <Activity className="w-4 h-4" />}
+      <span className="text-xs font-mono uppercase tracking-widest flex-1">{message}</span>
+      <button onClick={onClose} className="opacity-50 hover:opacity-100 transition-opacity">
+        <X className="w-4 h-4" />
+      </button>
+    </motion.div>
+  );
+};
+
+const ConfirmationModal = ({ 
+  isOpen, 
+  title, 
+  message, 
+  onConfirm, 
+  onCancel 
+}: { 
+  isOpen: boolean, 
+  title: string, 
+  message: string, 
+  onConfirm: () => void, 
+  onCancel: () => void 
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[10000] flex items-center justify-center p-6 bg-[#141414]/80 backdrop-blur-sm">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className="max-w-md w-full bg-[#E4E3E0] p-8 rounded-sm shadow-2xl border border-[#141414]/10"
+        >
+          <h2 className="text-2xl font-serif italic mb-4">{title}</h2>
+          <p className="text-sm text-[#141414]/70 mb-8 leading-relaxed">{message}</p>
+          <div className="flex justify-end gap-4">
+            <button 
+              onClick={onCancel}
+              className="px-6 py-2 text-xs font-mono uppercase tracking-widest hover:bg-[#141414]/5 transition-colors"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={onConfirm}
+              className="px-6 py-2 bg-[#141414] text-[#E4E3E0] text-xs font-mono uppercase tracking-widest hover:bg-[#141414]/90 transition-colors"
+            >
+              Confirm
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+};
+
 const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
   const [hasError, setHasError] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -185,15 +271,15 @@ const Sidebar = ({ user, profile }: { user: User | null, profile: UserProfile | 
   
   const links = [
     { name: 'Dashboard', path: '/', icon: Folder },
-    { name: 'Activity Log', path: '/activity', icon: Activity },
   ];
 
-  // Robust check for admin role using both the auth user and the firestore profile
+  // Robust check for admin role
   const isAdmin = profile?.role === 'admin' || 
                   user?.email === 'thomas@veripura.com' || 
                   profile?.email === 'thomas@veripura.com';
 
   if (isAdmin) {
+    links.push({ name: 'Audit Trail', path: '/activity', icon: Activity });
     links.push({ name: 'Team Management', path: '/users', icon: Users });
   }
 
@@ -266,6 +352,7 @@ const Dashboard = ({ profile }: { profile: UserProfile | null }) => {
   const [newRoomName, setNewRoomName] = useState('');
   const [newRoomDesc, setNewRoomDesc] = useState('');
   const [loading, setLoading] = useState(true);
+  const { notify } = useNotification();
 
   useEffect(() => {
     if (!profile) return;
@@ -303,16 +390,18 @@ const Dashboard = ({ profile }: { profile: UserProfile | null }) => {
       // Log activity
       await addDoc(collection(db, 'activity_logs'), {
         userId: profile.uid,
-        action: 'Created Room',
-        details: `Room: ${newRoomName} (${roomRef.id})`,
+        action: 'CREATED_ROOM',
+        details: `Created data room: ${newRoomName}`,
         timestamp: serverTimestamp()
       });
 
       setNewRoomName('');
       setNewRoomDesc('');
       setIsModalOpen(false);
+      notify('Data room created successfully', 'success');
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'rooms');
+      handleFirestoreError(error, OperationType.CREATE, 'rooms');
+      notify('Failed to create data room', 'error');
     }
   };
 
@@ -587,6 +676,7 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
   const [allowedUserProfiles, setAllowedUserProfiles] = useState<UserProfile[]>([]);
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [expiryDays, setExpiryDays] = useState<string>('');
+  const { notify, confirm } = useNotification();
 
   useEffect(() => {
     if (!roomId) return;
@@ -637,7 +727,7 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
       const userSnap = await getDocs(userQuery);
 
       if (userSnap.empty) {
-        alert('User not found. They must sign in to the VDR at least once first.');
+        notify('User not found. They must sign in to the VDR at least once first.', 'error');
         setInviteLoading(false);
         return;
       }
@@ -645,7 +735,7 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
       const targetUser = userSnap.docs[0].data() as UserProfile;
       
       if (room.allowedUsers.includes(targetUser.uid)) {
-        alert('User already has access.');
+        notify('User already has access.', 'info');
         setInviteLoading(false);
         return;
       }
@@ -658,8 +748,8 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
       // Log activity
       await addDoc(collection(db, 'activity_logs'), {
         userId: profile.uid,
-        action: 'Granted Access',
-        details: `User: ${targetUser.email} granted access to Room: ${room.name}`,
+        action: 'GRANTED_ACCESS',
+        details: `Granted access to ${targetUser.email} for room: ${room.name}`,
         timestamp: serverTimestamp()
       });
 
@@ -667,10 +757,11 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
       setRoom({ ...room, allowedUsers: [...room.allowedUsers, targetUser.uid] });
       setAllowedUserProfiles([...allowedUserProfiles, targetUser]);
       setInviteEmail('');
-      alert(`Access granted to ${targetUser.email}`);
+      notify(`Access granted to ${targetUser.email}`, 'success');
 
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `rooms/${roomId}`);
+      notify('Failed to grant access', 'error');
     } finally {
       setInviteLoading(false);
     }
@@ -679,30 +770,34 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
   const handleRemoveAccess = async (targetUid: string, targetEmail: string) => {
     if (!roomId || !profile || !room) return;
     if (targetUid === profile.uid) {
-      alert('You cannot remove your own access.');
+      notify('You cannot remove your own access.', 'error');
       return;
     }
 
-    try {
-      await updateDoc(doc(db, 'rooms', roomId), {
-        allowedUsers: arrayRemove(targetUid)
-      });
+    confirm('Remove Access', `Are you sure you want to remove access for ${targetEmail}?`, async () => {
+      try {
+        await updateDoc(doc(db, 'rooms', roomId), {
+          allowedUsers: arrayRemove(targetUid)
+        });
 
-      // Log activity
-      await addDoc(collection(db, 'activity_logs'), {
-        userId: profile.uid,
-        action: 'Revoked Access',
-        details: `User: ${targetEmail} access revoked from Room: ${room.name}`,
-        timestamp: serverTimestamp()
-      });
+        // Log activity
+        await addDoc(collection(db, 'activity_logs'), {
+          userId: profile.uid,
+          action: 'REVOKED_ACCESS',
+          details: `User: ${targetEmail} access revoked from Room: ${room.name}`,
+          timestamp: serverTimestamp()
+        });
 
-      // Update local state
-      setRoom({ ...room, allowedUsers: room.allowedUsers.filter(id => id !== targetUid) });
-      setAllowedUserProfiles(allowedUserProfiles.filter(p => p.uid !== targetUid));
+        // Update local state
+        setRoom({ ...room, allowedUsers: room.allowedUsers.filter(id => id !== targetUid) });
+        setAllowedUserProfiles(allowedUserProfiles.filter(p => p.uid !== targetUid));
+        notify(`Access revoked for ${targetEmail}`, 'success');
 
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `rooms/${roomId}`);
-    }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `rooms/${roomId}`);
+        notify('Failed to revoke access', 'error');
+      }
+    });
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -733,14 +828,16 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
       // Log activity
       await addDoc(collection(db, 'activity_logs'), {
         userId: profile.uid,
-        action: 'Uploaded Document',
-        details: `File: ${file.name} in Room: ${room?.name}${expiryDays ? ` (Expires in ${expiryDays} days)` : ''}`,
+        action: 'UPLOADED_DOCUMENT',
+        details: `Uploaded document: ${file.name} to room: ${room?.name}${expiryDays ? ` (Expires in ${expiryDays} days)` : ''}`,
         timestamp: serverTimestamp()
       });
 
       setExpiryDays('');
+      notify('Document uploaded successfully', 'success');
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `rooms/${roomId}/documents`);
+      handleFirestoreError(error, OperationType.CREATE, `rooms/${roomId}/documents`);
+      notify('Failed to upload document', 'error');
     } finally {
       setUploading(false);
     }
@@ -751,15 +848,15 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
     
     // Check expiry client-side for better UX
     if (doc.expiryDate && new Date() > doc.expiryDate.toDate()) {
-      alert('This document has expired and is no longer accessible.');
+      notify('This document has expired and is no longer accessible.', 'error');
       return;
     }
 
     // Log activity
     await addDoc(collection(db, 'activity_logs'), {
       userId: profile.uid,
-      action: 'Viewed Document',
-      details: `File: ${doc.name} in Room: ${room?.name}`,
+      action: 'VIEWED_DOCUMENT',
+      details: `Viewed document: ${doc.name} in room: ${room?.name}`,
       timestamp: serverTimestamp()
     });
     
@@ -1017,6 +1114,7 @@ const ActivityView = () => {
 const UsersView = ({ currentProfile }: { currentProfile: UserProfile | null }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const { notify, confirm } = useNotification();
 
   useEffect(() => {
     const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
@@ -1033,14 +1131,13 @@ const UsersView = ({ currentProfile }: { currentProfile: UserProfile | null }) =
   const toggleRole = async (targetUser: UserProfile) => {
     if (!currentProfile || currentProfile.role !== 'admin') return;
     if (targetUser.uid === currentProfile.uid) {
-      alert("You cannot change your own role.");
+      notify("You cannot change your own role.", 'error');
       return;
     }
 
     const newRole = targetUser.role === 'admin' ? 'viewer' : 'admin';
-    const confirmMsg = `Are you sure you want to change ${targetUser.displayName}'s role to ${newRole}?`;
     
-    if (window.confirm(confirmMsg)) {
+    confirm('Change Role', `Are you sure you want to change ${targetUser.displayName}'s role to ${newRole}?`, async () => {
       try {
         await updateDoc(doc(db, 'users', targetUser.uid), {
           role: newRole
@@ -1049,14 +1146,17 @@ const UsersView = ({ currentProfile }: { currentProfile: UserProfile | null }) =
         // Log activity
         await addDoc(collection(db, 'activity_logs'), {
           userId: currentProfile.uid,
-          action: 'Role Changed',
-          details: `User: ${targetUser.email} role changed to ${newRole}`,
+          action: 'ROLE_CHANGED',
+          details: `Changed role for ${targetUser.email} to ${newRole}`,
           timestamp: serverTimestamp()
         });
+
+        notify(`Role updated for ${targetUser.displayName}`, 'success');
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, `users/${targetUser.uid}`);
+        notify('Failed to update role', 'error');
       }
-    }
+    });
   };
 
   if (loading) return <div className="p-8 font-mono text-xs">LOADING TEAM...</div>;
@@ -1121,6 +1221,38 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Notification state
+  const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+  
+  // Confirmation modal state
+  const [confirmState, setConfirmState] = useState<{ 
+    isOpen: boolean, 
+    title: string, 
+    message: string, 
+    onConfirm: () => void 
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
+  const notify = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setNotification({ message, type });
+  };
+
+  const confirmAction = (title: string, message: string, onConfirm: () => void) => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
 
   useEffect(() => {
     console.log("VeriPura VDR v1.0.3 Initialized");
@@ -1171,22 +1303,42 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <Router>
-        <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans">
-          <Navbar user={user} profile={profile} />
-          <div className="flex">
-            <Sidebar user={user} profile={profile} />
-            <main className="flex-1 min-h-[calc(100vh-64px)]">
-              <Routes>
-                <Route path="/" element={<Dashboard profile={profile} />} />
-                <Route path="/room/:roomId" element={<RoomView profile={profile} />} />
-                <Route path="/activity" element={<ActivityView />} />
-                <Route path="/users" element={(profile?.role === 'admin' || user?.email === 'thomas@veripura.com') ? <UsersView currentProfile={profile} /> : <Dashboard profile={profile} />} />
-              </Routes>
-            </main>
+      <NotificationContext.Provider value={{ notify, confirm: confirmAction }}>
+        <Router>
+          <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans">
+            <Navbar user={user} profile={profile} />
+            <div className="flex">
+              <Sidebar user={user} profile={profile} />
+              <main className="flex-1 min-h-[calc(100vh-64px)]">
+                <Routes>
+                  <Route path="/" element={<Dashboard profile={profile} />} />
+                  <Route path="/room/:roomId" element={<RoomView profile={profile} />} />
+                  <Route path="/activity" element={<ActivityView />} />
+                  <Route path="/users" element={(profile?.role === 'admin' || user?.email === 'thomas@veripura.com') ? <UsersView currentProfile={profile} /> : <Dashboard profile={profile} />} />
+                </Routes>
+              </main>
+            </div>
           </div>
-        </div>
-      </Router>
+        </Router>
+
+        <AnimatePresence>
+          {notification && (
+            <Notification 
+              message={notification.message} 
+              type={notification.type} 
+              onClose={() => setNotification(null)} 
+            />
+          )}
+        </AnimatePresence>
+
+        <ConfirmationModal 
+          isOpen={confirmState.isOpen}
+          title={confirmState.title}
+          message={confirmState.message}
+          onConfirm={confirmState.onConfirm}
+          onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        />
+      </NotificationContext.Provider>
     </ErrorBoundary>
   );
 }

@@ -8,15 +8,21 @@
     <meta http-equiv="Expires" content="0" />
     <script>
       (function() {
+        var _fetch = window.fetch;
         try {
-          var originalFetch = window.fetch;
           Object.defineProperty(window, 'fetch', {
-            value: originalFetch,
-            writable: true,
-            configurable: true
+            get: function() { return _fetch; },
+            set: function(v) { _fetch = v; },
+            configurable: true,
+            enumerable: true
           });
         } catch (e) {
-          console.warn('Failed to make window.fetch writable:', e);
+          console.warn('Failed to redefine window.fetch with getter/setter:', e);
+          try {
+            window.fetch = _fetch;
+          } catch (e2) {
+            console.error('Critical: window.fetch is read-only and non-configurable');
+          }
         }
       })();
     </script>
