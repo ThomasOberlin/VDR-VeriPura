@@ -1,0 +1,170 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string
+    //   - role: string (enum: 'admin', 'viewer')
+    //   - createdAt: timestamp
+    //
+    // Collection: rooms
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required, size < 100)
+    //   - description: string (size < 500)
+    //   - ownerId: string (required)
+    //   - allowedUsers: list of strings (required)
+    //   - createdAt: timestamp
+    //
+    // Collection: rooms/{roomId}/documents
+    // Fields:
+    //   - id: string (required)
+    //   - roomId: string (required)
+    //   - name: string (required, size < 255)
+    //   - type: string
+    //   - size: number
+    //   - url: string (required, url format)
+    //   - uploadedBy: string (required)
+    //   - expiryDate: timestamp (optional)
+    //   - createdAt: timestamp
+    //
+    // Collection: rooms/{roomId}/documents/{docId}/questions
+    // Fields:
+    //   - id: string (required)
+    //   - docId: string (required)
+    //   - authorId: string (required)
+    //   - authorEmail: string
+    //   - text: string (required, size < 2000)
+    //   - answer: string
+    //   - answeredBy: string
+    //   - timestamp: timestamp (required)
+    //   - answeredAt: timestamp
+    //
+    // Collection: activity_logs
+    // Fields:
+    //   - id: string (required)
+    //   - userId: string (required)
+    //   - action: string (required)
+    //   - details: string
+    //   - timestamp: timestamp
+    //
+    // ===============================================================
+
+    // --- Helper Functions ---
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (request.auth.token.email == "thomas@veripura.com" && request.auth.token.email_verified == true)
+      );
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // --- Domain Validators ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             data.role in ['admin', 'viewer'] &&
+             (data.role == 'admin' ? (request.auth.token.email == "thomas@veripura.com" || isAdmin()) : true);
+    }
+
+    function isValidRoom(data) {
+      return data.keys().hasAll(['name', 'ownerId', 'allowedUsers']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.ownerId == request.auth.uid &&
+             data.allowedUsers is list;
+    }
+
+    function isValidDocument(data) {
+      return data.keys().hasAll(['name', 'roomId', 'url', 'uploadedBy']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 255 &&
+             isValidUrl(data.url) &&
+             data.uploadedBy == request.auth.uid &&
+             (!('expiryDate' in data) || data.expiryDate is timestamp);
+    }
+
+    function isValidQuestion(data) {
+      return data.keys().hasAll(['docId', 'authorId', 'text', 'timestamp']) &&
+             data.docId is string &&
+             data.authorId == request.auth.uid &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 2000 &&
+             data.timestamp is timestamp;
+    }
+
+    function isDocumentExpired(docData) {
+      return 'expiryDate' in docData && docData.expiryDate != null && request.time > docData.expiryDate;
+    }
+
+    function isValidLog(data) {
+      return data.keys().hasAll(['userId', 'action', 'timestamp']) &&
+             data.userId == request.auth.uid &&
+             data.action is string && data.action.size() < 100;
+    }
+
+    // --- Rules ---
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) ||
+                   (isAdmin() && isValidUser(request.resource.data));
+    }
+
+    match /rooms/{roomId} {
+      allow read: if isAdmin() || (isAuthenticated() && request.auth.uid in resource.data.allowedUsers);
+      allow create: if isAdmin() && isValidRoom(request.resource.data);
+      allow update: if isAdmin() && isValidRoom(request.resource.data);
+      allow delete: if isAdmin();
+      
+      match /documents/{docId} {
+        allow read: if (isAdmin() || (isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.allowedUsers)) &&
+                    (isAdmin() || !isDocumentExpired(resource.data));
+        allow create: if isAdmin() && isValidDocument(request.resource.data);
+        allow update: if isAdmin() && isValidDocument(request.resource.data);
+        allow delete: if isAdmin();
+
+        match /questions/{qId} {
+          allow read: if isAdmin() || (isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.allowedUsers);
+          allow create: if (isAdmin() || (isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.allowedUsers)) && 
+                        isValidQuestion(request.resource.data);
+          allow update: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.authorId && !('answer' in request.resource.data));
+          allow delete: if isAdmin();
+        }
+      }
+    }
+
+    match /activity_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() && isValidLog(request.resource.data);
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

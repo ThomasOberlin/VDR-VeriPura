@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile information and role.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID from Firebase Auth." },
+        "email": { "type": "string", "format": "email", "description": "User's email address." },
+        "displayName": { "type": "string", "description": "User's display name." },
+        "role": { "type": "string", "enum": ["admin", "viewer"], "description": "User's role in the VDR." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp when the user profile was created." }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "DataRoom": {
+      "title": "DataRoom",
+      "description": "A virtual data room containing documents.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique room ID." },
+        "name": { "type": "string", "description": "Name of the data room." },
+        "description": { "type": "string", "description": "Description of the data room." },
+        "ownerId": { "type": "string", "description": "UID of the user who created the room." },
+        "allowedUsers": { 
+          "type": "array", 
+          "items": { "type": "string" },
+          "description": "List of user UIDs who have access to this room."
+        },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp when the room was created." }
+      },
+      "required": ["id", "name", "ownerId", "allowedUsers"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "A document stored within a data room.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique document ID." },
+        "roomId": { "type": "string", "description": "ID of the data room this document belongs to." },
+        "name": { "type": "string", "description": "Filename of the document." },
+        "type": { "type": "string", "description": "MIME type or file extension." },
+        "size": { "type": "number", "description": "File size in bytes." },
+        "url": { "type": "string", "format": "uri", "description": "URL to access the document." },
+        "uploadedBy": { "type": "string", "description": "UID of the user who uploaded the document." },
+        "expiryDate": { "type": "string", "format": "date-time", "description": "Optional timestamp when the document expires." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp when the document was uploaded." }
+      },
+      "required": ["id", "roomId", "name", "url", "uploadedBy"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "A Q&A thread for a specific document.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique question ID." },
+        "docId": { "type": "string", "description": "ID of the document this question refers to." },
+        "authorId": { "type": "string", "description": "UID of the user asking the question." },
+        "authorEmail": { "type": "string", "description": "Email of the user asking the question." },
+        "text": { "type": "string", "description": "The question text." },
+        "answer": { "type": "string", "description": "The admin's answer." },
+        "answeredBy": { "type": "string", "description": "UID of the admin who answered." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Timestamp when the question was asked." },
+        "answeredAt": { "type": "string", "format": "date-time", "description": "Timestamp when the answer was provided." }
+      },
+      "required": ["id", "docId", "authorId", "text", "timestamp"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Audit trail of actions performed in the VDR.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique log ID." },
+        "userId": { "type": "string", "description": "UID of the user who performed the action." },
+        "action": { "type": "string", "description": "Description of the action (e.g., 'Viewed Document', 'Uploaded Document')." },
+        "details": { "type": "string", "description": "Additional details about the action." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Timestamp when the action occurred." }
+      },
+      "required": ["id", "userId", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles."
+    },
+    "/rooms/{roomId}": {
+      "schema": "DataRoom",
+      "description": "Data room metadata."
+    },
+    "/rooms/{roomId}/documents/{docId}": {
+      "schema": "Document",
+      "description": "Documents within a specific data room."
+    },
+    "/rooms/{roomId}/documents/{docId}/questions/{qId}": {
+      "schema": "Question",
+      "description": "Q&A threads for a specific document."
+    },
+    "/activity_logs/{logId}": {
+      "schema": "ActivityLog",
+      "description": "Global activity logs for auditing."
+    }
+  }
+}
