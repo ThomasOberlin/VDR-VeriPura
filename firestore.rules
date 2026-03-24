@@ -31,6 +31,7 @@ service cloud.firestore {
     //   - type: string
     //   - size: number
     //   - url: string (required, url format)
+    //   - storagePath: string (optional)
     //   - uploadedBy: string (required)
     //   - expiryDate: timestamp (optional)
     //   - createdAt: timestamp
@@ -113,6 +114,7 @@ service cloud.firestore {
              data.name is string && data.name.size() > 0 && data.name.size() < 255 &&
              isValidUrl(data.url) &&
              data.uploadedBy == request.auth.uid &&
+             (!('storagePath' in data) || data.storagePath is string) &&
              (!('expiryDate' in data) || data.expiryDate is timestamp);
     }
 

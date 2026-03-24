@@ -24,7 +24,12 @@ import {
   Timestamp,
   handleFirestoreError,
   OperationType,
-  User
+  User,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+  storage
 } from './firebase';
 import { 
   Shield, 
@@ -78,6 +83,7 @@ interface Document {
   type: string;
   size: number;
   url: string;
+  storagePath?: string;
   uploadedBy: string;
   expiryDate?: any;
   createdAt: any;
@@ -352,7 +358,8 @@ const Dashboard = ({ profile }: { profile: UserProfile | null }) => {
   const [newRoomName, setNewRoomName] = useState('');
   const [newRoomDesc, setNewRoomDesc] = useState('');
   const [loading, setLoading] = useState(true);
-  const { notify } = useNotification();
+  const [searchQuery, setSearchQuery] = useState('');
+  const { notify, confirm } = useNotification();
 
   useEffect(() => {
     if (!profile) return;
@@ -380,7 +387,7 @@ const Dashboard = ({ profile }: { profile: UserProfile | null }) => {
     if (!newRoomName || !profile) return;
 
     try {
-      const roomRef = await addDoc(collection(db, 'rooms'), {
+      await addDoc(collection(db, 'rooms'), {
         name: newRoomName,
         description: newRoomDesc,
         ownerId: profile.uid,
@@ -406,6 +413,34 @@ const Dashboard = ({ profile }: { profile: UserProfile | null }) => {
     }
   };
 
+  const handleDeleteRoom = async (roomToDelete: DataRoom) => {
+    if (!profile || profile.role !== 'admin') return;
+
+    confirm('Delete Data Room', `Are you sure you want to delete "${roomToDelete.name}"? This will delete the room metadata. Note: Documents within the room should be deleted manually or via a batch process (not implemented in this prototype).`, async () => {
+      try {
+        await deleteDoc(doc(db, 'rooms', roomToDelete.id));
+
+        // Log activity
+        await addDoc(collection(db, 'activity_logs'), {
+          userId: profile.uid,
+          action: 'DELETED_ROOM',
+          details: `Deleted data room: ${roomToDelete.name}`,
+          timestamp: serverTimestamp()
+        });
+
+        notify('Data room deleted successfully', 'success');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `rooms/${roomToDelete.id}`);
+        notify('Failed to delete data room', 'error');
+      }
+    });
+  };
+
+  const filteredRooms = rooms.filter(room => 
+    room.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    room.description.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   if (loading) return <div className="p-8 font-mono text-xs">INITIALIZING ENVIRONMENT...</div>;
 
   return (
@@ -415,41 +450,67 @@ const Dashboard = ({ profile }: { profile: UserProfile | null }) => {
           <h1 className="text-4xl font-serif italic text-[#141414]">Data Rooms</h1>
           <p className="text-xs font-mono opacity-50 mt-2 uppercase tracking-widest">Secure Document Repositories</p>
         </div>
-        {profile?.role === 'admin' && (
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-[#141414] text-[#E4E3E0] px-6 py-3 rounded-sm flex items-center gap-2 hover:bg-[#141414]/90 transition shadow-lg"
-          >
-            <Plus className="w-4 h-4" />
-            New Room
-          </button>
-        )}
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
+            <input 
+              type="text"
+              placeholder="Search rooms..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-white border border-[#141414]/10 pl-10 pr-4 py-2 rounded-sm text-xs focus:outline-none focus:border-[#141414] w-64"
+            />
+          </div>
+          {profile?.role === 'admin' && (
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="bg-[#141414] text-[#E4E3E0] px-6 py-3 rounded-sm flex items-center gap-2 hover:bg-[#141414]/90 transition shadow-lg"
+            >
+              <Plus className="w-4 h-4" />
+              New Room
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {rooms.map((room) => (
-          <Link 
-            key={room.id}
-            to={`/room/${room.id}`}
-            className="group bg-white border border-[#141414]/10 p-6 rounded-sm hover:border-[#141414] transition-all relative overflow-hidden"
-          >
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 transition-opacity">
-              <ChevronRight className="w-6 h-6" />
-            </div>
-            <Folder className="w-10 h-10 text-[#141414] mb-4" />
-            <h3 className="text-xl font-serif italic mb-2">{room.name}</h3>
-            <p className="text-sm text-gray-500 line-clamp-2 mb-4 h-10">{room.description}</p>
-            <div className="flex justify-between items-center pt-4 border-t border-gray-100">
-              <span className="text-[10px] font-mono opacity-40 uppercase tracking-widest">
-                {room.createdAt?.toDate ? room.createdAt.toDate().toLocaleDateString() : 'Just now'}
-              </span>
-              <span className="text-[10px] font-mono bg-gray-100 px-2 py-1 rounded">SECURE</span>
-            </div>
-          </Link>
+        {filteredRooms.map((room) => (
+          <div key={room.id} className="group relative">
+            <Link 
+              to={`/room/${room.id}`}
+              className="block bg-white border border-[#141414]/10 p-6 rounded-sm hover:border-[#141414] transition-all relative overflow-hidden h-full"
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 transition-opacity">
+                <ChevronRight className="w-6 h-6" />
+              </div>
+              <Folder className="w-10 h-10 text-[#141414] mb-4" />
+              <h3 className="text-xl font-serif italic mb-2">{room.name}</h3>
+              <p className="text-sm text-gray-500 line-clamp-2 mb-4 h-10">{room.description}</p>
+              <div className="flex justify-between items-center pt-4 border-t border-gray-100">
+                <span className="text-[10px] font-mono opacity-40 uppercase tracking-widest">
+                  {room.createdAt?.toDate ? room.createdAt.toDate().toLocaleDateString() : 'Just now'}
+                </span>
+                <span className="text-[10px] font-mono bg-gray-100 px-2 py-1 rounded">SECURE</span>
+              </div>
+            </Link>
+            {profile?.role === 'admin' && (
+              <button 
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleDeleteRoom(room);
+                }}
+                className="absolute top-4 right-4 p-2 text-red-600 opacity-0 group-hover:opacity-100 hover:bg-red-50 rounded transition z-10"
+                title="Delete Room"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         ))}
       </div>
 
-      {rooms.length === 0 && (
+      {filteredRooms.length === 0 && (
         <div className="text-center py-24 border-2 border-dashed border-[#141414]/10 rounded-sm">
           <Lock className="w-12 h-12 mx-auto opacity-20 mb-4" />
           <p className="font-mono text-xs opacity-40 uppercase tracking-widest">No active data rooms found</p>
@@ -677,14 +738,14 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
   const [allowedUserProfiles, setAllowedUserProfiles] = useState<UserProfile[]>([]);
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [expiryDays, setExpiryDays] = useState<string>('');
+  const [docSearchQuery, setDocSearchQuery] = useState('');
   const { notify, confirm } = useNotification();
 
   useEffect(() => {
     if (!roomId) return;
 
-    const loadRoomData = async () => {
-      const docRef = doc(db, 'rooms', roomId);
-      const docSnap = await getDoc(docRef);
+    // Real-time room data
+    const roomUnsubscribe = onSnapshot(doc(db, 'rooms', roomId), async (docSnap) => {
       if (docSnap.exists()) {
         const roomData = { id: docSnap.id, ...docSnap.data() } as DataRoom;
         setRoom(roomData);
@@ -701,12 +762,10 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
           setAllowedUserProfiles(profiles);
         }
       }
-    };
-
-    loadRoomData();
+    });
 
     const q = query(collection(db, `rooms/${roomId}/documents`), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const docUnsubscribe = onSnapshot(q, (snapshot) => {
       const docData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Document));
       setDocuments(docData);
       setLoading(false);
@@ -714,8 +773,15 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
       handleFirestoreError(error, OperationType.LIST, `rooms/${roomId}/documents`);
     });
 
-    return () => unsubscribe();
+    return () => {
+      roomUnsubscribe();
+      docUnsubscribe();
+    };
   }, [roomId]);
+
+  const filteredDocuments = documents.filter(doc => 
+    doc.name.toLowerCase().includes(docSearchQuery.toLowerCase())
+  );
 
   const handleInviteUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -814,13 +880,18 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
         expiryDate = Timestamp.fromDate(date);
       }
 
-      // Simulation: We add metadata to Firestore. In a real app, we'd upload to Storage first.
+      // Real Upload to Firebase Storage
+      const storageRef = ref(storage, `rooms/${roomId}/${Date.now()}_${file.name}`);
+      const uploadResult = await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(uploadResult.ref);
+
       await addDoc(collection(db, `rooms/${roomId}/documents`), {
         roomId,
         name: file.name,
         type: file.type || 'application/octet-stream',
         size: file.size,
-        url: `https://example.com/files/${file.name}`, // Placeholder
+        url: downloadUrl,
+        storagePath: storageRef.fullPath,
         uploadedBy: profile.uid,
         expiryDate,
         createdAt: serverTimestamp()
@@ -864,6 +935,36 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
     window.open(doc.url, '_blank');
   };
 
+  const handleDeleteDocument = async (docToDelete: Document) => {
+    if (!profile || profile.role !== 'admin') return;
+
+    confirm('Delete Document', `Are you sure you want to delete "${docToDelete.name}"? This action cannot be undone.`, async () => {
+      try {
+        // 1. Delete from Storage if storagePath exists
+        if (docToDelete.storagePath) {
+          const storageRef = ref(storage, docToDelete.storagePath);
+          await deleteObject(storageRef).catch(err => console.warn("Storage deletion failed:", err));
+        }
+
+        // 2. Delete from Firestore
+        await deleteDoc(doc(db, `rooms/${roomId}/documents`, docToDelete.id));
+
+        // 3. Log activity
+        await addDoc(collection(db, 'activity_logs'), {
+          userId: profile.uid,
+          action: 'DELETED_DOCUMENT',
+          details: `Deleted document: ${docToDelete.name} from room: ${room?.name}`,
+          timestamp: serverTimestamp()
+        });
+
+        notify('Document deleted successfully', 'success');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `rooms/${roomId}/documents/${docToDelete.id}`);
+        notify('Failed to delete document', 'error');
+      }
+    });
+  };
+
   const isExpired = (doc: Document) => {
     return doc.expiryDate && new Date() > doc.expiryDate.toDate();
   };
@@ -882,25 +983,37 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
             <h1 className="text-4xl font-serif italic text-[#141414]">{room.name}</h1>
             <p className="text-sm text-gray-500 mt-2">{room.description}</p>
           </div>
-          {profile?.role === 'admin' && (
-            <div className="flex items-center gap-4">
-              <div className="flex flex-col items-end">
-                <label className="text-[10px] font-mono uppercase tracking-widest opacity-40 mb-1">Set Expiry (Days)</label>
-                <input 
-                  type="number"
-                  value={expiryDays}
-                  onChange={(e) => setExpiryDays(e.target.value)}
-                  className="w-24 bg-white border border-[#141414]/10 p-2 rounded-sm text-xs focus:outline-none focus:border-[#141414]"
-                  placeholder="Never"
-                />
-              </div>
-              <label className="bg-[#141414] text-[#E4E3E0] px-6 py-3 rounded-sm flex items-center gap-2 hover:bg-[#141414]/90 transition shadow-lg cursor-pointer h-fit self-end">
-                <Upload className="w-4 h-4" />
-                {uploading ? 'Uploading...' : 'Upload Document'}
-                <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
-              </label>
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
+              <input 
+                type="text"
+                placeholder="Search documents..."
+                value={docSearchQuery}
+                onChange={(e) => setDocSearchQuery(e.target.value)}
+                className="bg-white border border-[#141414]/10 pl-10 pr-4 py-2 rounded-sm text-xs focus:outline-none focus:border-[#141414] w-48"
+              />
             </div>
-          )}
+            {profile?.role === 'admin' && (
+              <div className="flex items-center gap-4">
+                <div className="flex flex-col items-end">
+                  <label className="text-[10px] font-mono uppercase tracking-widest opacity-40 mb-1">Set Expiry (Days)</label>
+                  <input 
+                    type="number"
+                    value={expiryDays}
+                    onChange={(e) => setExpiryDays(e.target.value)}
+                    className="w-24 bg-white border border-[#141414]/10 p-2 rounded-sm text-xs focus:outline-none focus:border-[#141414]"
+                    placeholder="Never"
+                  />
+                </div>
+                <label className="bg-[#141414] text-[#E4E3E0] px-6 py-3 rounded-sm flex items-center gap-2 hover:bg-[#141414]/90 transition shadow-lg cursor-pointer h-fit self-end">
+                  <Upload className="w-4 h-4" />
+                  {uploading ? 'Uploading...' : 'Upload'}
+                  <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
+                </label>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -913,7 +1026,7 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
         </div>
         
         <div className="divide-y divide-gray-100">
-          {documents.map((doc) => (
+          {filteredDocuments.map((doc) => (
             <React.Fragment key={doc.id}>
               <div className={`grid grid-cols-[1fr_120px_120px_100px] p-4 items-center hover:bg-gray-50 transition-colors group ${isExpired(doc) ? 'opacity-40 grayscale' : ''}`}>
                 <div className="flex items-center gap-3">
@@ -953,6 +1066,15 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
                   >
                     <Eye className="w-4 h-4" />
                   </button>
+                  {profile?.role === 'admin' && (
+                    <button 
+                      onClick={() => handleDeleteDocument(doc)}
+                      className="p-2 hover:bg-red-600 hover:text-white rounded transition"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
               
@@ -971,10 +1093,12 @@ const RoomView = ({ profile }: { profile: UserProfile | null }) => {
             </React.Fragment>
           ))}
           
-          {documents.length === 0 && (
+          {filteredDocuments.length === 0 && (
             <div className="py-24 text-center">
               <FileText className="w-12 h-12 mx-auto opacity-10 mb-4" />
-              <p className="font-mono text-xs opacity-30 uppercase tracking-widest">No documents in this room</p>
+              <p className="font-mono text-xs opacity-30 uppercase tracking-widest">
+                {docSearchQuery ? 'No documents match your search' : 'No documents in this room'}
+              </p>
             </div>
           )}
         </div>

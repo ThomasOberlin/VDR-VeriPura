@@ -1,12 +1,14 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, getDocFromServer, Timestamp, serverTimestamp, getDocs, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase SDK
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
 // Error handling helper
@@ -92,6 +94,10 @@ export {
   Timestamp,
   getDocs,
   arrayUnion,
-  arrayRemove
+  arrayRemove,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject
 };
 export type { User };
