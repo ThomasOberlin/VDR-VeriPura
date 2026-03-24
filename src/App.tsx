@@ -1258,32 +1258,38 @@ export default function App() {
   useEffect(() => {
     console.log("VeriPura VDR v1.0.6 Initialized");
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      
-      if (currentUser) {
-        // Check/Create Profile
-        const profileRef = doc(db, 'users', currentUser.uid);
-        const profileSnap = await getDoc(profileRef);
+      try {
+        setUser(currentUser);
         
-        if (profileSnap.exists()) {
-          setProfile(profileSnap.data() as UserProfile);
+        if (currentUser) {
+          // Check/Create Profile
+          const profileRef = doc(db, 'users', currentUser.uid);
+          const profileSnap = await getDoc(profileRef);
+          
+          if (profileSnap.exists()) {
+            setProfile(profileSnap.data() as UserProfile);
+          } else {
+            // Bootstrap first admin
+            const isAdmin = currentUser.email === 'thomas@veripura.com';
+            const newProfile: UserProfile = {
+              uid: currentUser.uid,
+              email: currentUser.email || '',
+              displayName: currentUser.displayName || 'User',
+              role: isAdmin ? 'admin' : 'viewer',
+              createdAt: serverTimestamp()
+            };
+            await setDoc(profileRef, newProfile);
+            setProfile(newProfile);
+          }
         } else {
-          // Bootstrap first admin
-          const isAdmin = currentUser.email === 'thomas@veripura.com';
-          const newProfile: UserProfile = {
-            uid: currentUser.uid,
-            email: currentUser.email || '',
-            displayName: currentUser.displayName || 'User',
-            role: isAdmin ? 'admin' : 'viewer',
-            createdAt: serverTimestamp()
-          };
-          await setDoc(profileRef, newProfile);
-          setProfile(newProfile);
+          setProfile(null);
         }
-      } else {
-        setProfile(null);
+      } catch (error) {
+        console.error("Auth initialization error:", error);
+        // Even on error, we must stop loading to show the UI (which might show an error state)
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
