@@ -53,7 +53,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-// --- Types (v1.0.3) ---
+// --- Types (v1.0.6) ---
 interface UserProfile {
   uid: string;
   email: string;
@@ -370,6 +370,7 @@ const Dashboard = ({ profile }: { profile: UserProfile | null }) => {
       setLoading(false);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'rooms');
+      setLoading(false);
     });
     return () => unsubscribe();
   }, [profile]);
@@ -1255,7 +1256,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    console.log("VeriPura VDR v1.0.3 Initialized");
+    console.log("VeriPura VDR v1.0.6 Initialized");
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       

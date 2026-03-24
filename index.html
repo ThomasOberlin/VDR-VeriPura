@@ -26,23 +26,25 @@
         }
       })();
     </script>
-    <title>VeriPura VDR v1.0.3</title>
+    <title>VeriPura VDR v1.0.6</title>
   </head>
   <body>
     <div id="root"></div>
     <script>
-      console.log("VeriPura Index v1.0.3 Loading...");
+      console.log("VeriPura Index v1.0.6 Loading...");
+      
+      // Aggressively unregister all service workers
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(function(registrations) {
-          if (registrations.length > 0) {
-            console.log("Found " + registrations.length + " service workers. Unregistering...");
-            for(let registration of registrations) {
-              registration.unregister().then(function(boolean) {
-                console.log("Service worker unregistered: " + boolean);
-              });
-            }
-          } else {
-            console.log("No service workers found.");
+          for(let registration of registrations) {
+            console.log("Unregistering service worker: " + registration.scope);
+            registration.unregister().then(function(success) {
+              if (success) {
+                console.log("Service worker unregistered successfully.");
+                // Force reload if we found and unregistered a worker
+                window.location.reload(true);
+              }
+            });
           }
         });
       }
